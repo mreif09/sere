@@ -1,6 +1,10 @@
 language: C++
 dist: bionic
 
+compiler:
+  - clang
+  - gcc
+
 before_install:
   - sudo apt-get install -y cmake
 
