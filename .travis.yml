@@ -6,11 +6,12 @@ compiler:
   - gcc
 
 before_install:
-  - sudo apt-get install -y cmake
+  - sudo apt-get install -y cmake gtest
 
 script:
   - mkdir build
   - cd build
   - cmake ..
-  - make
+  - make test_model
+  - make test
 
