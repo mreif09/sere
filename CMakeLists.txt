@@ -13,8 +13,8 @@ add_library(model model.cpp)
 #target_link_libraries(plugin Boost:boost)
 
 enable_testing()
-find_package(GTest REQUIRED)
+#find_package(GTest REQUIRED)
 
 add_executable(test_model test_model.cpp)
-target_link_libraries(test_model GTest::GTest GTest::Main)
+#target_link_libraries(test_model GTest::GTest GTest::Main)
 add_test(test_model test_model)
