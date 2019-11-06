@@ -66,12 +66,12 @@ class AttributeValueString : public AttributeValueSimple {
   std::string m_value;
 
  public:
-  AttributeValueString(
-      std::shared_ptr<DatatypeDefinitionString> _type,
-      std::shared_ptr<AttributeDefinition> _definition) {
-    type = _type;
-    definition = _definition;
-  }
+//  AttributeValueString(
+//      std::shared_ptr<DatatypeDefinitionString> _type,
+//      std::shared_ptr<AttributeDefinition> _definition) {
+//    type = _type;
+//    definition = _definition;
+//  }
   std::shared_ptr<DatatypeDefinitionString> type;
   std::shared_ptr<AttributeDefinition> definition;
 
@@ -90,9 +90,17 @@ class AttributeDefinitionSimple : public AttributeDefinition {
 };
 
 class AttributeDefinitionString : public AttributeDefinitionSimple {
- public:
+ private:
   AttributeDefinitionString(std::shared_ptr<DatatypeDefinitionString> _type)
-      : default_value(_type, std::shared_ptr<AttributeDefinition>(this)), type(_type) {}
+      : type(_type) {}
+
+ public:
+  static std::shared_ptr<AttributeDefinitionString> create(std::shared_ptr<DatatypeDefinitionString> _type) {
+    auto ads = std::shared_ptr<AttributeDefinitionString>(new AttributeDefinitionString{_type});
+    ads->default_value.definition = ads;
+    ads->default_value.type = _type;
+    return ads;
+  }
 
   AttributeValueString default_value;
   std::shared_ptr<DatatypeDefinitionString> type;
