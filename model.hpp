@@ -116,15 +116,15 @@ class SpecType : public Identifiable {
   std::map<std::string, std::shared_ptr<AttributeDefinition>> attribute_definitions;
 };
 
-class SpecObjectType : public SpecType {
- public:
-};
-
 class SpecObject : public SpecElementWithAttributes {
  public:
-  SpecObject(std::shared_ptr<SpecObjectType> _type) : type(_type) {}
+  SpecObject(std::shared_ptr<SpecType> _type) : type(_type) {}
 
-  std::shared_ptr<SpecObjectType> type;
+  std::shared_ptr<SpecType> type;
+};
+
+class SpecObjectType : public SpecType {
+ public:
 };
 
 class SpecificationType : public SpecType {
@@ -152,4 +152,14 @@ class Model {
   std::map<std::string, std::shared_ptr<SpecType>> spec_types;
 
   std::map<std::string, Specification> specifications;
+
+  std::unique_ptr<SpecObject> create_object(std::shared_ptr<SpecObjectType> spec_type) {
+    auto object = std::make_unique<SpecObject>(spec_type);
+
+    for(auto& def : spec_type->attribute_definitions) {
+      object->attribute_values[def.second->identifier] = def.second->create_value();
+    }
+
+    return object;
+  }
 };
