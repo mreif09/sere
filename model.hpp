@@ -106,7 +106,7 @@ class AttributeDefinitionString : public AttributeDefinitionSimple {
 
 class SpecElementWithAttributes : public Identifiable {
  public:
-  std::list<std::unique_ptr<AttributeValue>> attribute_values;
+  std::map<std::string, std::unique_ptr<AttributeValue>> attribute_values; // key = identifier from definition
 };
 
 class SpecType : public Identifiable {
@@ -133,7 +133,7 @@ class SpecHierachy : public AccessControlledElement {
   bool is_table_tnternal;
   std::list<SpecHierachy> children;
   std::shared_ptr<SpecificationType> type;
-  std::list<std::shared_ptr<AttributeDefinition>> editable_attributes;
+  std::map<std::string, std::shared_ptr<AttributeDefinition>> editable_attributes;
   std::shared_ptr<SpecObject> object;
 };
 

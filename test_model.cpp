@@ -28,9 +28,9 @@ int main() {
   sot->attribute_definitions[ads->identifier] = ads;
 
   ads->default_value.set_value("v1");
-  so->attribute_values.push_back(ads->create_value());
+  so->attribute_values[ads->identifier] = ads->create_value();
 
-  auto& value = so->attribute_values.front();
+  auto& value = so->attribute_values[ads->identifier];
   std::cout << value->value() << std::endl;
   std::cout << value->set_value("123") << std::endl;
   std::cout << value->set_value("1234") << std::endl;
