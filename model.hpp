@@ -37,12 +37,6 @@ class DatatypeDefinitionString: public DatatypeDefinitionSimple{
   int max_length;
 };
 
-class AttributeDefinition : public AccessControlledElement {
- public:
-  virtual bool multi_valued() const = 0;
-  virtual bool is_value_valid(const std::string&) const = 0;
-};
-
 class AttributeValue {
  public:
   virtual bool set_value(const std::string&) = 0;
@@ -50,6 +44,14 @@ class AttributeValue {
   virtual bool add_value(const std::string&) = 0;
   virtual void remove_value(const std::string&) = 0;
   virtual void clear_values() = 0;
+};
+
+class AttributeDefinition : public AccessControlledElement {
+ public:
+  virtual bool multi_valued() const = 0;
+  virtual bool is_value_valid(const std::string&) const = 0;
+
+  virtual std::unique_ptr<AttributeValue> create_value() const = 0;
 };
 
 class AttributeValueSimple : public AttributeValue {
@@ -99,7 +101,7 @@ class AttributeDefinitionString : public AttributeDefinitionSimple {
     return value.length() <= type->max_length;
   }
 
-  std::unique_ptr<AttributeValueString> create_value() {
+  std::unique_ptr<AttributeValue> create_value() const override {
     return std::make_unique<AttributeValueString>(default_value);
   }
 };
