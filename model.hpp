@@ -37,6 +37,43 @@ class DatatypeDefinitionString: public DatatypeDefinitionSimple{
   int max_length;
 };
 
+class AttributeDefinition : public AccessControlledElement {
+ public:
+  virtual bool multi_valued() const = 0;
+  virtual bool is_value_valid(const std::string&) const = 0;
+
+  //virtual std::unique_ptr<AttributeValue> create_value() const = 0;
+};
+
+class AttributeDefinitionSimple : public AttributeDefinition {
+ public:
+  bool multi_valued() const override { return false; };
+};
+
+class AttributeDefinitionString : public AttributeDefinitionSimple {
+ public:
+  AttributeDefinitionString(std::shared_ptr<DatatypeDefinitionString> _type)
+      : type(_type) {}
+
+// public:
+//  static std::shared_ptr<AttributeDefinitionString> create(std::shared_ptr<DatatypeDefinitionString> _type) {
+//    auto ads = std::shared_ptr<AttributeDefinitionString>(new AttributeDefinitionString{_type});
+//    ads->default_value.definition = ads;
+//    ads->default_value.type = _type;
+//    return ads;
+//  }
+
+  std::shared_ptr<DatatypeDefinitionString> type;
+
+  bool is_value_valid(const std::string& value) const override {
+    return value.length() <= type->max_length;
+  }
+
+//  std::unique_ptr<AttributeValue> create_value() const override {
+//    return std::make_unique<AttributeValueString>(default_value);
+//  }
+};
+
 class AttributeValue {
  public:
   virtual bool set_value(const std::string&) = 0;
@@ -44,14 +81,6 @@ class AttributeValue {
   virtual bool add_value(const std::string&) = 0;
   virtual void remove_value(const std::string&) = 0;
   virtual void clear_values() = 0;
-};
-
-class AttributeDefinition : public AccessControlledElement {
- public:
-  virtual bool multi_valued() const = 0;
-  virtual bool is_value_valid(const std::string&) const = 0;
-
-  virtual std::unique_ptr<AttributeValue> create_value() const = 0;
 };
 
 class AttributeValueSimple : public AttributeValue {
@@ -66,14 +95,10 @@ class AttributeValueString : public AttributeValueSimple {
   std::string m_value;
 
  public:
-//  AttributeValueString(
-//      std::shared_ptr<DatatypeDefinitionString> _type,
-//      std::shared_ptr<AttributeDefinition> _definition) {
-//    type = _type;
-//    definition = _definition;
-//  }
-  std::shared_ptr<DatatypeDefinitionString> type;
-  std::shared_ptr<AttributeDefinition> definition;
+  AttributeValueString(std::shared_ptr<AttributeDefinitionString> _definition)
+	: definition{_definition} {}
+
+  std::shared_ptr<AttributeDefinitionString> definition;
 
   bool set_value(const std::string& value) override {
     if (definition->is_value_valid(value) == false) return false;
@@ -84,35 +109,23 @@ class AttributeValueString : public AttributeValueSimple {
   std::string value() const override { return m_value; }
 };
 
-class AttributeDefinitionSimple : public AttributeDefinition {
+class AttributeValueFactory {
  public:
-  bool multi_valued() const override { return false; };
+  virtual std::unique_ptr<AttributeValue> create_value() const = 0;
 };
 
-class AttributeDefinitionString : public AttributeDefinitionSimple {
- private:
-  AttributeDefinitionString(std::shared_ptr<DatatypeDefinitionString> _type)
-      : type(_type) {}
-
+class AttributeValueStringFactory : public AttributeValueFactory {
  public:
-  static std::shared_ptr<AttributeDefinitionString> create(std::shared_ptr<DatatypeDefinitionString> _type) {
-    auto ads = std::shared_ptr<AttributeDefinitionString>(new AttributeDefinitionString{_type});
-    ads->default_value.definition = ads;
-    ads->default_value.type = _type;
-    return ads;
-  }
+  AttributeValueString m_default_value;
 
-  AttributeValueString default_value;
-  std::shared_ptr<DatatypeDefinitionString> type;
-
-  bool is_value_valid(const std::string& value) const override {
-    return value.length() <= type->max_length;
-  }
-
+    AttributeValueStringFactory(const AttributeValueString& default_value)
+	: m_default_value{default_value} {}
+	
   std::unique_ptr<AttributeValue> create_value() const override {
-    return std::make_unique<AttributeValueString>(default_value);
+    return std::make_unique<AttributeValueString>(m_default_value);
   }
 };
+
 
 class SpecElementWithAttributes : public Identifiable {
  public:
@@ -124,18 +137,25 @@ class SpecType : public Identifiable {
   std::map<std::string, std::shared_ptr<AttributeDefinition>> attribute_definitions;
 };
 
+class SpecObjectType : public SpecType {
+ public:
+  std::map<std::string, std::shared_ptr<AttributeValueFactory>> value_factories;
+
+  void AddAttribute(std::shared_ptr<AttributeDefinition> def, std::shared_ptr<AttributeValueFactory> f) {
+      attribute_definitions[def->identifier] = def;
+      value_factories[def->identifier] = f;
+  }
+
+};
+
+class SpecificationType : public SpecType {
+};
+
 class SpecObject : public SpecElementWithAttributes {
  public:
   SpecObject(std::shared_ptr<SpecType> _type) : type(_type) {}
 
   std::shared_ptr<SpecType> type;
-};
-
-class SpecObjectType : public SpecType {
- public:
-};
-
-class SpecificationType : public SpecType {
 };
 
 class SpecHierachy : public AccessControlledElement {
@@ -164,8 +184,8 @@ class Model {
   std::unique_ptr<SpecObject> create_object(std::shared_ptr<SpecObjectType> spec_type) {
     auto object = std::make_unique<SpecObject>(spec_type);
 
-    for(auto& def : spec_type->attribute_definitions) {
-      object->attribute_values[def.second->identifier] = def.second->create_value();
+    for(auto& f : spec_type->value_factories) {
+      object->attribute_values[f.first] = f.second->create_value();
     }
 
     return object;

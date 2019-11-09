@@ -16,13 +16,19 @@ int main() {
 //  spec.identifier = "spec1";
 
 //  auto ads = std::make_shared<AttributeDefinitionString>(dts);
-  auto ads = AttributeDefinitionString::create(dts);
+  auto ads = std::make_shared<AttributeDefinitionString>(dts);
   ads->identifier = "ad1";
-  ads->default_value.set_value("v1");
+
+  AttributeValueString default_value{ads};
+//  default_value.
+  default_value.set_value("v1");
+
+  auto f = std::make_shared<AttributeValueStringFactory>(default_value);
 
   auto sot = std::make_shared<SpecObjectType>();
   sot->identifier = "st1";
-  sot->attribute_definitions[ads->identifier] = ads;
+  //sot->attribute_definitions[ads->identifier] = ads;
+  sot->AddAttribute(ads, f);
   m.spec_types[sot->identifier] = sot;
  
   //auto so = std::make_shared<SpecObject>(sot);
@@ -40,7 +46,7 @@ int main() {
   std::cout << value->value() << std::endl;
   std::cout << value->set_value("1234") << std::endl;
   std::cout << value->value() << std::endl;
-  std::cout << ads->default_value.value() << std::endl;
+  std::cout << f->m_default_value.value() << std::endl;
 
   return 0;
 }
