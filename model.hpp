@@ -2,6 +2,9 @@
 #include <memory>
 #include <list>
 #include <map>
+#include <algorithm>
+#include <vector>
+
 static int id = 0;
 
 class Identifiable {
@@ -44,11 +47,13 @@ class EnumValue : public Identifiable {
  public:
   int key;
   std::string content;
+
+  EnumValue(int k, std::string v) : key{k}, content{v} {}
 };
 
 class DatatypeDefinitionEnumeration : public DatatypeDefinition {
  private:
-  std::map<std::string, std::unique_ptr<EnumValue>> m_enum_values;
+  std::map<std::string, std::shared_ptr<EnumValue>> m_enum_values;
 
  public:
   auto& enum_values() { return m_enum_values; }
@@ -89,12 +94,19 @@ class AttributeDefinitionEnumeration : public AttributeDefinition {
 
   void set_multi_valued(bool value) { m_multi_valued = value; }
   bool multi_valued() const override { return m_multi_valued; };
+
+  bool is_value_valid(const std::string& value) const override {
+    return std::any_of(m_type->enum_values().begin(), m_type->enum_values().end(), [&value](auto& element){ return value == element.second->content; });;
+  };
+
+  auto type() { return m_type; }
 };
 
 class AttributeValue {
  public:
   virtual bool set_value(const std::string&) = 0;
   virtual std::string value() const = 0;
+  virtual std::vector<std::string> values() const = 0;
   virtual bool add_value(const std::string&) = 0;
   virtual void remove_value(const std::string&) = 0;
   virtual void clear_values() = 0;
@@ -105,6 +117,12 @@ class AttributeValueSimple : public AttributeValue {
   bool add_value(const std::string&) override { return false; }
   void remove_value(const std::string&) override {}
   void clear_values() override {}
+  std::vector<std::string> values() const override {
+    std::vector<std::string>  v;
+    v.push_back(value());
+
+    return v;
+  }
 };
 
 class AttributeValueString : public AttributeValueSimple {
@@ -125,30 +143,69 @@ class AttributeValueString : public AttributeValueSimple {
   std::string value() const override { return m_value; }
 };
 
-class AttributeValueFactory {
+class AttributeValueEnumeration : public AttributeValue {
+ private:
+  std::map<std::string, std::shared_ptr<EnumValue>> m_values;
+  std::shared_ptr<AttributeDefinitionEnumeration> m_definition;
+
+ public:
+   AttributeValueEnumeration(std::shared_ptr<AttributeDefinitionEnumeration> definition)
+	: m_definition{definition} {}
+
+   bool add_value(const std::string& value) override {
+     if (m_definition->is_value_valid(value) == false) return false;
+     auto type = m_definition->type();
+     auto v = std::find_if(type->enum_values().begin(), type->enum_values().end(), [&value](auto& element){ return value == element.second->content; });
+     m_values[v->first] = v->second;
+
+     return true;
+   }
+
+  // Todo remove by value
+  void remove_value(const std::string& key) override { m_values.erase(key); }
+  void clear_values() override { m_values.clear(); }
+
+  bool set_value(const std::string& value) override {
+    return false;
+  }
+
+  std::vector<std::string> values() const override {
+    std::vector<std::string>  v;
+    for (auto&_value : m_values) {
+      v.push_back(_value.second->content);
+    }
+
+    return v;
+  }
+
+  std::string value() const override { return ""; }
+};
+
+class AttributeValueFactoryBase {
  public:
   virtual std::unique_ptr<AttributeValue> create_value() const = 0;
 };
 
-class AttributeValueStringFactory : public AttributeValueFactory {
+template<class T>
+class AttributeValueFactory : public AttributeValueFactoryBase {
  private:
-  AttributeValueString m_default_value;
+  T m_default_value;
 
  public:
-  AttributeValueString& default_value() { return m_default_value; };
+  T& default_value() { return m_default_value; };
 
-    AttributeValueStringFactory(const AttributeValueString& default_value)
+    AttributeValueFactory(const T& default_value)
 	: m_default_value{default_value} {}
 
   std::unique_ptr<AttributeValue> create_value() const override {
-    return std::make_unique<AttributeValueString>(m_default_value);
+    return std::make_unique<T>(m_default_value);
   }
 };
 
 
 class SpecElementWithAttributes : public Identifiable {
  private:
-  std::map<std::string, std::unique_ptr<AttributeValue>> m_attribute_values; // key = identifier from definition
+  std::map<std::string, std::shared_ptr<AttributeValue>> m_attribute_values; // key = identifier from definition
 
  public:
   auto& attribute_values() { return m_attribute_values; }
@@ -157,12 +214,20 @@ class SpecElementWithAttributes : public Identifiable {
 class SpecType : public Identifiable {
  private:
   std::map<std::string, std::shared_ptr<AttributeDefinition>> m_attribute_definitions;
-  std::map<std::string, std::shared_ptr<AttributeValueFactory>> m_value_factories;
+  std::map<std::string, std::shared_ptr<AttributeValueFactoryBase>> m_value_factories;
 
- public:
-  void AddAttribute(std::shared_ptr<AttributeDefinition> def, std::shared_ptr<AttributeValueFactory> f) {
+  void AddCommonAttribute(std::shared_ptr<AttributeDefinition> def, std::shared_ptr<AttributeValueFactoryBase> f) {
       m_attribute_definitions[def->identifier] = def;
       m_value_factories[def->identifier] = f;
+  }
+
+ public:
+  void AddAttribute(std::shared_ptr<AttributeDefinitionString> def, std::shared_ptr<AttributeValueFactory<AttributeValueString>> f) {
+    AddCommonAttribute(def, f);
+  }
+
+  void AddAttribute(std::shared_ptr<AttributeDefinitionEnumeration> def, std::shared_ptr<AttributeValueFactory<AttributeValueEnumeration>> f) {
+    AddCommonAttribute(def, f);
   }
 
   auto& value_factories() { return m_value_factories; }
@@ -216,3 +281,5 @@ class Model {
     return object;
   }
 };
+
+// TODO: AttributeValueEnumeration + AttributeValueEnumerationFactory
