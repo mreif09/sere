@@ -2,6 +2,7 @@
 #include <memory>
 #include <list>
 #include <map>
+static int id = 0;
 
 class Identifiable {
  public:
@@ -9,6 +10,8 @@ class Identifiable {
   std::string identifier;
 
   std::string long_name;
+
+  Identifiable() : identifier{std::to_string(id++)} {}
 
 // public:
 //  std::string desc() { return m_desc; }
@@ -37,12 +40,24 @@ class DatatypeDefinitionString: public DatatypeDefinitionSimple{
   int max_length;
 };
 
+class EnumValue : public Identifiable {
+ public:
+  int key;
+  std::string content;
+};
+
+class DatatypeDefinitionEnumeration : public DatatypeDefinition {
+ private:
+  std::map<std::string, std::unique_ptr<EnumValue>> m_enum_values;
+
+ public:
+  auto& enum_values() { return m_enum_values; }
+};
+
 class AttributeDefinition : public AccessControlledElement {
  public:
   virtual bool multi_valued() const = 0;
   virtual bool is_value_valid(const std::string&) const = 0;
-
-  //virtual std::unique_ptr<AttributeValue> create_value() const = 0;
 };
 
 class AttributeDefinitionSimple : public AttributeDefinition {
@@ -51,27 +66,29 @@ class AttributeDefinitionSimple : public AttributeDefinition {
 };
 
 class AttributeDefinitionString : public AttributeDefinitionSimple {
+private:
+  std::shared_ptr<DatatypeDefinitionString> m_type;
+
  public:
-  AttributeDefinitionString(std::shared_ptr<DatatypeDefinitionString> _type)
-      : type(_type) {}
-
-// public:
-//  static std::shared_ptr<AttributeDefinitionString> create(std::shared_ptr<DatatypeDefinitionString> _type) {
-//    auto ads = std::shared_ptr<AttributeDefinitionString>(new AttributeDefinitionString{_type});
-//    ads->default_value.definition = ads;
-//    ads->default_value.type = _type;
-//    return ads;
-//  }
-
-  std::shared_ptr<DatatypeDefinitionString> type;
+  AttributeDefinitionString(std::shared_ptr<DatatypeDefinitionString> type)
+      : m_type(type) {}
 
   bool is_value_valid(const std::string& value) const override {
-    return value.length() <= type->max_length;
+    return value.length() <= m_type->max_length;
   }
+};
 
-//  std::unique_ptr<AttributeValue> create_value() const override {
-//    return std::make_unique<AttributeValueString>(default_value);
-//  }
+class AttributeDefinitionEnumeration : public AttributeDefinition {
+ private:
+  bool m_multi_valued;
+  std::shared_ptr<DatatypeDefinitionEnumeration> m_type;
+
+ public:
+  AttributeDefinitionEnumeration(std::shared_ptr<DatatypeDefinitionEnumeration> type)
+      : m_type(type) {}
+
+  void set_multi_valued(bool value) { m_multi_valued = value; }
+  bool multi_valued() const override { return m_multi_valued; };
 };
 
 class AttributeValue {
@@ -93,15 +110,14 @@ class AttributeValueSimple : public AttributeValue {
 class AttributeValueString : public AttributeValueSimple {
  private:
   std::string m_value;
+  std::shared_ptr<AttributeDefinitionString> m_definition;
 
  public:
-  AttributeValueString(std::shared_ptr<AttributeDefinitionString> _definition)
-	: definition{_definition} {}
-
-  std::shared_ptr<AttributeDefinitionString> definition;
+  AttributeValueString(std::shared_ptr<AttributeDefinitionString> definition)
+	: m_definition{definition} {}
 
   bool set_value(const std::string& value) override {
-    if (definition->is_value_valid(value) == false) return false;
+    if (m_definition->is_value_valid(value) == false) return false;
     m_value = value;
     return true;
   }
@@ -115,12 +131,15 @@ class AttributeValueFactory {
 };
 
 class AttributeValueStringFactory : public AttributeValueFactory {
- public:
+ private:
   AttributeValueString m_default_value;
+
+ public:
+  AttributeValueString& default_value() { return m_default_value; };
 
     AttributeValueStringFactory(const AttributeValueString& default_value)
 	: m_default_value{default_value} {}
-	
+
   std::unique_ptr<AttributeValue> create_value() const override {
     return std::make_unique<AttributeValueString>(m_default_value);
   }
@@ -128,34 +147,39 @@ class AttributeValueStringFactory : public AttributeValueFactory {
 
 
 class SpecElementWithAttributes : public Identifiable {
+ private:
+  std::map<std::string, std::unique_ptr<AttributeValue>> m_attribute_values; // key = identifier from definition
+
  public:
-  std::map<std::string, std::unique_ptr<AttributeValue>> attribute_values; // key = identifier from definition
+  auto& attribute_values() { return m_attribute_values; }
 };
 
 class SpecType : public Identifiable {
+ private:
+  std::map<std::string, std::shared_ptr<AttributeDefinition>> m_attribute_definitions;
+  std::map<std::string, std::shared_ptr<AttributeValueFactory>> m_value_factories;
+
  public:
-  std::map<std::string, std::shared_ptr<AttributeDefinition>> attribute_definitions;
+  void AddAttribute(std::shared_ptr<AttributeDefinition> def, std::shared_ptr<AttributeValueFactory> f) {
+      m_attribute_definitions[def->identifier] = def;
+      m_value_factories[def->identifier] = f;
+  }
+
+  auto& value_factories() { return m_value_factories; }
 };
 
 class SpecObjectType : public SpecType {
- public:
-  std::map<std::string, std::shared_ptr<AttributeValueFactory>> value_factories;
-
-  void AddAttribute(std::shared_ptr<AttributeDefinition> def, std::shared_ptr<AttributeValueFactory> f) {
-      attribute_definitions[def->identifier] = def;
-      value_factories[def->identifier] = f;
-  }
-
 };
 
 class SpecificationType : public SpecType {
 };
 
 class SpecObject : public SpecElementWithAttributes {
+ private:
+  std::shared_ptr<SpecType> type;
+
  public:
   SpecObject(std::shared_ptr<SpecType> _type) : type(_type) {}
-
-  std::shared_ptr<SpecType> type;
 };
 
 class SpecHierachy : public AccessControlledElement {
@@ -184,8 +208,9 @@ class Model {
   std::unique_ptr<SpecObject> create_object(std::shared_ptr<SpecObjectType> spec_type) {
     auto object = std::make_unique<SpecObject>(spec_type);
 
-    for(auto& f : spec_type->value_factories) {
-      object->attribute_values[f.first] = f.second->create_value();
+    for(auto& f : spec_type->value_factories()) {
+      auto& values = object->attribute_values();
+      values[f.first] = f.second->create_value();
     }
 
     return object;
