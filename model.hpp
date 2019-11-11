@@ -4,6 +4,7 @@
 #include <map>
 #include <algorithm>
 #include <vector>
+#include <sstream>
 
 static int id = 0;
 
@@ -33,20 +34,38 @@ class AccessControlledElement : public Identifiable {
 };
 
 class DatatypeDefinition: public Identifiable {
+ public:
+  virtual bool is_value_valid(const std::string&) const = 0;
 };
 
-class DatatypeDefinitionSimple: public DatatypeDefinition {
-};
+class DatatypeDefinitionSimple: public DatatypeDefinition {};
 
 class DatatypeDefinitionString: public DatatypeDefinitionSimple{
  public:
   int max_length;
+
+  bool is_value_valid(const std::string& value) const override {
+    return value.length() <= max_length;
+  }
+};
+
+class DatatypeDefinitionInteger: public DatatypeDefinitionSimple{
+ public:
+  int min;
+  int max;
+
+  bool is_value_valid(const std::string& value) const override {
+    std::stringstream value_stream(value);
+    int x;
+    value_stream >> x;
+    return (x >= min) && (x <= max);
+  }
 };
 
 class EnumValue : public Identifiable {
  public:
-  int key;
-  std::string content;
+  const int key;
+  const std::string content;
 
   EnumValue(int k, std::string v) : key{k}, content{v} {}
 };
@@ -57,30 +76,38 @@ class DatatypeDefinitionEnumeration : public DatatypeDefinition {
 
  public:
   auto& enum_values() { return m_enum_values; }
+
+  bool is_value_valid(const std::string& value) const override {
+    return std::any_of(m_enum_values.begin(), m_enum_values.end(), [&value](auto& element){ return value == element.second->content; });;
+  };
 };
 
 class AttributeDefinition : public AccessControlledElement {
  public:
   virtual bool multi_valued() const = 0;
-  virtual bool is_value_valid(const std::string&) const = 0;
 };
 
+template<class T>
 class AttributeDefinitionSimple : public AttributeDefinition {
- public:
-  bool multi_valued() const override { return false; };
-};
-
-class AttributeDefinitionString : public AttributeDefinitionSimple {
 private:
-  std::shared_ptr<DatatypeDefinitionString> m_type;
+  std::shared_ptr<T> m_type;
 
  public:
-  AttributeDefinitionString(std::shared_ptr<DatatypeDefinitionString> type)
+  AttributeDefinitionSimple(std::shared_ptr<T> type)
       : m_type(type) {}
 
-  bool is_value_valid(const std::string& value) const override {
-    return value.length() <= m_type->max_length;
-  }
+  bool multi_valued() const override { return false; };
+  std::shared_ptr<T> type() { return m_type; }
+};
+
+class AttributeDefinitionString : public AttributeDefinitionSimple<DatatypeDefinitionString> {
+ public:
+  using AttributeDefinitionSimple::AttributeDefinitionSimple;
+};
+
+class AttributeDefinitionInteger : public AttributeDefinitionSimple<DatatypeDefinitionInteger> {
+ public:
+  using AttributeDefinitionSimple::AttributeDefinitionSimple;
 };
 
 class AttributeDefinitionEnumeration : public AttributeDefinition {
@@ -95,11 +122,7 @@ class AttributeDefinitionEnumeration : public AttributeDefinition {
   void set_multi_valued(bool value) { m_multi_valued = value; }
   bool multi_valued() const override { return m_multi_valued; };
 
-  bool is_value_valid(const std::string& value) const override {
-    return std::any_of(m_type->enum_values().begin(), m_type->enum_values().end(), [&value](auto& element){ return value == element.second->content; });;
-  };
-
-  auto type() { return m_type; }
+  std::shared_ptr<DatatypeDefinitionEnumeration> type() { return m_type; }
 };
 
 class AttributeValue {
@@ -112,8 +135,23 @@ class AttributeValue {
   virtual void clear_values() = 0;
 };
 
+template<class T>
 class AttributeValueSimple : public AttributeValue {
+ private:
+  std::string m_value;
+  std::shared_ptr<T> m_definition;
+
  public:
+  AttributeValueSimple(std::shared_ptr<T> definition) : m_definition{definition} {}
+
+  bool set_value(const std::string& value) override {
+    if (m_definition->type()->is_value_valid(value) == false) return false;
+    m_value = value;
+    return true;
+  }
+
+  std::string value() const override { return m_value; }
+
   bool add_value(const std::string&) override { return false; }
   void remove_value(const std::string&) override {}
   void clear_values() override {}
@@ -125,22 +163,14 @@ class AttributeValueSimple : public AttributeValue {
   }
 };
 
-class AttributeValueString : public AttributeValueSimple {
- private:
-  std::string m_value;
-  std::shared_ptr<AttributeDefinitionString> m_definition;
-
+class AttributeValueString : public AttributeValueSimple<AttributeDefinitionString> {
  public:
-  AttributeValueString(std::shared_ptr<AttributeDefinitionString> definition)
-	: m_definition{definition} {}
+  using AttributeValueSimple::AttributeValueSimple;
+};
 
-  bool set_value(const std::string& value) override {
-    if (m_definition->is_value_valid(value) == false) return false;
-    m_value = value;
-    return true;
-  }
-
-  std::string value() const override { return m_value; }
+class AttributeValueInteger : public AttributeValueSimple<AttributeDefinitionInteger> {
+ public:
+  using AttributeValueSimple::AttributeValueSimple;
 };
 
 class AttributeValueEnumeration : public AttributeValue {
@@ -153,7 +183,7 @@ class AttributeValueEnumeration : public AttributeValue {
 	: m_definition{definition} {}
 
    bool add_value(const std::string& value) override {
-     if (m_definition->is_value_valid(value) == false) return false;
+     if (m_definition->type()->is_value_valid(value) == false) return false;
      auto type = m_definition->type();
      auto v = std::find_if(type->enum_values().begin(), type->enum_values().end(), [&value](auto& element){ return value == element.second->content; });
      m_values[v->first] = v->second;
@@ -227,6 +257,10 @@ class SpecType : public Identifiable {
   }
 
   void AddAttribute(std::shared_ptr<AttributeDefinitionEnumeration> def, std::shared_ptr<AttributeValueFactory<AttributeValueEnumeration>> f) {
+    AddCommonAttribute(def, f);
+  }
+
+  void AddAttribute(std::shared_ptr<AttributeDefinitionInteger> def, std::shared_ptr<AttributeValueFactory<AttributeValueInteger>> f) {
     AddCommonAttribute(def, f);
   }
 
